@@ -1,0 +1,75 @@
+{
+  "name": "voice-pc-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice-first local PC agent with Ollama setup wizard and desktop packaging.",
+  "author": "mate0s",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "start": "node server.js",
+    "desktop": "electron .",
+    "dist:win": "electron-builder --win nsis",
+    "dist:dir": "electron-builder --dir",
+    "release:win": "electron-builder --win nsis --publish always",
+    "dist:win:linux": "bash ./scripts/build-win-from-linux.sh"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.mate0s.voicepcagent",
+    "productName": "Voice PC Agent",
+    "asar": false,
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "public/**/*",
+      "build/icon.png",
+      "server.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": "nsis",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "installerSidebar": "build/installer-sidebar.bmp",
+      "uninstallerSidebar": "build/uninstaller-sidebar.bmp"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mate0s",
+        "repo": "voice-pc-agent-releases"
+      }
+    ],
+    "electronUpdaterCompatibility": ">=2.16"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "semver": "^7.6.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mate0s/voice-pc-agent-releases.git"
+  },
+  "license": "MIT"
+}

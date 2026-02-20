@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voice PC Agent</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>Voice PC Agent</h1>
+          <p>Modo voz activo por defecto</p>
+        </div>
+        <div class="top-actions">
+          <button id="updateCheckBtn" type="button" class="hidden">Buscar actualización</button>
+          <button id="updateDownloadBtn" type="button" class="hidden">Descargar actualización</button>
+          <button id="updateInstallBtn" type="button" class="hidden">Reiniciar y actualizar</button>
+        </div>
+        <label class="toggle">
+          <input id="textModeToggle" type="checkbox" />
+          <span>Modo texto</span>
+        </label>
+      </header>
+      <p id="updateStatus" class="update-status hidden"></p>
+
+      <section id="setupPanel" class="setup-panel hidden">
+        <h2>Asistente de Inicio</h2>
+        <p id="setupSummary">Comprobando Ollama y modelo local...</p>
+        <ul id="setupChecklist" class="setup-checklist"></ul>
+        <div class="setup-actions">
+          <button id="setupInstallBtn" type="button" class="primary hidden">Instalar Ollama</button>
+          <button id="setupStartBtn" type="button" class="hidden">Iniciar Ollama</button>
+          <button id="setupPullBtn" type="button" class="hidden">Descargar Modelo</button>
+          <button id="setupRefreshBtn" type="button">Recomprobar</button>
+        </div>
+        <pre id="setupLog" class="setup-log hidden"></pre>
+      </section>
+
+      <section class="voice-stage">
+        <div id="orb" class="orb idle" aria-hidden="true">
+          <div class="ring ring-1"></div>
+          <div class="ring ring-2"></div>
+          <div class="core"></div>
+        </div>
+
+        <div class="status-block">
+          <h2 id="statusMain">Listo para hablar</h2>
+          <p id="statusSub">Pulsa "Activar voz" y empieza a pedir tareas.</p>
+        </div>
+
+        <div class="controls">
+          <button id="startVoiceBtn" class="primary">Activar voz</button>
+          <label class="toggle">
+            <input id="ttsToggle" type="checkbox" checked />
+            <span>Voz del agente</span>
+          </label>
+          <label class="toggle">
+            <input id="autoListenToggle" type="checkbox" checked />
+            <span>Manos libres</span>
+          </label>
+        </div>
+      </section>
+
+      <section id="textConsole" class="text-console hidden">
+        <section id="chat" class="chat"></section>
+        <section id="pending" class="pending hidden"></section>
+        <form id="chatForm" class="input-row">
+          <input id="messageInput" type="text" placeholder="Escribe un comando o pregunta..." autocomplete="off" />
+          <button type="submit">Enviar</button>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
