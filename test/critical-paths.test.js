@@ -23,6 +23,7 @@ import {
   getLastUserMessage,
   getSessionState
 } from '../lib/session.js';
+import { chooseClosestCandidate } from '../lib/resolver.js';
 
 describe('lib/intent.js', () => {
   it("detectSummaryIntent('resúmeme el proyecto') -> true", () => {
@@ -134,5 +135,21 @@ describe('lib/session.js', () => {
       { role: 'user', content: 'último mensaje' }
     ];
     assert.equal(getLastUserMessage(history), 'último mensaje');
+  });
+});
+
+describe('lib/resolver.js', () => {
+  it("chooseClosestCandidate contains-match 'android' -> 'AndroidDevelpment'", () => {
+    assert.equal(
+      chooseClosestCandidate('android', ['AndroidDevelpment', 'Unity', 'FutbolDB']),
+      'AndroidDevelpment'
+    );
+  });
+
+  it("chooseClosestCandidate contains-match 'recetas' -> 'recetas-mama'", () => {
+    assert.equal(
+      chooseClosestCandidate('recetas', ['recetas-mama', 'Unity', 'Monad']),
+      'recetas-mama'
+    );
   });
 });
