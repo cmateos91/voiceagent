@@ -139,6 +139,9 @@ async function consumeSseResponse(response, onEvent) {
       try {
         const event = JSON.parse(raw);
         onEvent(event);
+        if (event?.type === 'final' && !state.speaking && !state.userPausedListening) {
+          maybeResumeListening(600);
+        }
       } catch {
         // Ignore malformed event blocks.
       }
@@ -296,12 +299,9 @@ function startListening() {
 }
 
 function maybeResumeListening(delayMs = 180) {
-  if (!autoListenToggle?.checked) return;
-  if (state.userPausedListening) return;
-
-  state.shouldAutoResume = true;
+  if (state.userPausedListening || state.thinking || state.speaking || state.pendingToken) return;
   setTimeout(() => {
-    if (state.shouldAutoResume && !state.listening && !state.speaking && !state.thinking) {
+    if (!state.listening && !state.userPausedListening && !state.thinking && !state.speaking) {
       startListening();
     }
   }, delayMs);
@@ -412,11 +412,16 @@ function speak(text) {
     } else {
       setStatus('Listo para escuchar', 'Puedes seguir hablando.');
     }
-    maybeResumeListening(220);
+    if (!state.userPausedListening) {
+      state.shouldAutoResume = true;
+      maybeResumeListening(400);
+    }
   })();
 }
 
 async function sendUserMessage(text, source = 'voice') {
+  state.shouldAutoResume = false;
+  if (state.listening) state.recognition?.stop();
   if (!text) return;
   if (!state.setupReady) {
     const msg = 'Primero completa el asistente de inicio para instalar o preparar Ollama.';

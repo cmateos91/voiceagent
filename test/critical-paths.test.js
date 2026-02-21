@@ -24,6 +24,7 @@ import {
   getSessionState
 } from '../lib/session.js';
 import { chooseClosestCandidate } from '../lib/resolver.js';
+import { buildDeterministicInspectionSummary } from '../lib/grounding.js';
 
 describe('lib/intent.js', () => {
   it("detectSummaryIntent('resúmeme el proyecto') -> true", () => {
@@ -150,6 +151,24 @@ describe('lib/resolver.js', () => {
     assert.equal(
       chooseClosestCandidate('recetas', ['recetas-mama', 'Unity', 'Monad']),
       'recetas-mama'
+    );
+  });
+});
+
+describe('lib/grounding.js', () => {
+  it('buildDeterministicInspectionSummary counts dirs/files from inspection topEntries', () => {
+    const inspection = {
+      topEntries: [
+        { name: 'src', type: 'dir' },
+        { name: 'docs', type: 'dir' },
+        { name: 'README.md', type: 'file' },
+        { name: 'package.json', type: 'file' },
+        { name: 'logo.png', type: 'file' }
+      ]
+    };
+    assert.equal(
+      buildDeterministicInspectionSummary('.', inspection),
+      'La carpeta . contiene 2 carpetas y 3 archivos.'
     );
   });
 });
