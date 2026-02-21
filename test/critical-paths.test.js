@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  detectWorkdirIntent,
   detectCorrectionIntent,
   detectListingIntent,
   detectSummaryIntent
@@ -49,6 +50,18 @@ describe('lib/intent.js', () => {
 
   it("detectCorrectionIntent('continúa') -> false", () => {
     assert.equal(detectCorrectionIntent('continúa'), false);
+  });
+
+  it("detectWorkdirIntent('en qué ruta te encuentras') -> true", () => {
+    assert.equal(detectWorkdirIntent('en qué ruta te encuentras'), true);
+  });
+
+  it("detectWorkdirIntent('dónde estás') -> true", () => {
+    assert.equal(detectWorkdirIntent('dónde estás'), true);
+  });
+
+  it("detectWorkdirIntent('hola qué tal') -> false", () => {
+    assert.equal(detectWorkdirIntent('hola qué tal'), false);
   });
 });
 
