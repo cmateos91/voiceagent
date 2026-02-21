@@ -8,6 +8,8 @@
   "main": "electron/main.mjs",
   "scripts": {
     "start": "node server.js",
+    "check": "node --check server.js && node --check lib/*.js",
+    "test": "node --test test/critical-paths.test.js",
     "desktop": "electron .",
     "dist:win": "electron-builder --win nsis",
     "dist:dir": "electron-builder --dir",
