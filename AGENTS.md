@@ -16,6 +16,8 @@ All runtime configuration constants are centralized in `lib/config.js`.
   → `lib/intent.js`
   → `lib/resolver.js` → `lib/config.js`, `lib/intent.js`, `lib/filesystem.js`
   → `lib/model.js` → `lib/config.js`, `lib/grounding.js`
+                   → `lib/providers.js` → (Ollama | OpenAI | Anthropic)
+                   → `lib/provider-config.js` (`.provider-config.json`)
   → `lib/filesystem.js` → `lib/config.js`
   → `lib/grounding.js` → `lib/executor.js`, `lib/resolver.js`
   → `lib/executor.js` → `lib/config.js`
@@ -37,7 +39,9 @@ All runtime configuration constants are centralized in `lib/config.js`.
 `lib/filesystem.js`: Safe path resolution and internal listing/inspection; not intent parsing.
 `lib/executor.js`: Command safety checks, parsing, execution, pending-token store; not HTTP routing.
 `lib/grounding.js`: Grounding/listing command builders and deterministic inspection summary; not subprocess execution.
-`lib/model.js`: Ollama chat/summarization and history compaction; not HTTP/Express concerns.
+`lib/model.js`: Prompt/context assembly, response parsing, and summarization orchestration; not provider transport details.
+`lib/providers.js`: Streaming LLM calls for all providers; not prompt building or context injection.
+`lib/provider-config.js`: Persist/load active provider config; not HTTP routing.
 `lib/setup.js`: Ollama setup checks/status helpers; not chat orchestration.
 `electron/main.mjs`: Desktop lifecycle, backend process spawn, updater IPC, navigation hardening; not chat logic.
 `public/app.js`: UI state, voice I/O, SSE consumption, API calls, pending confirmation UX; not backend policy.
@@ -50,9 +54,11 @@ All runtime configuration constants are centralized in `lib/config.js`.
 ## Where to add things
 - New intent detector: add in `lib/intent.js`, export it, wire in `lib/chat-route.js`; if filesystem-related, include in `FS_INTENTS` (`lib/chat-route.js:78`).
 - New target-resolution heuristic: `lib/resolver.js` only.
+- New anaphoric pattern (esa, ábrela, etc.) → `lib/slots.js`, add to `targetRefs` or `resultRefs` array.
 - New internal filesystem read/list behavior: `lib/filesystem.js`.
 - New shell command policy/type: `lib/executor.js` (and branch in `lib/chat-route.js` if chat-facing).
 - New model prompt/LLM call behavior: `lib/model.js`.
+- New LLM provider: `lib/providers.js`, add `callXxx()` and wire provider switch in `callProvider()`, then add model list in `GET /api/provider/models` in `server.js`.
 - New setup capability/validation: `lib/setup.js` + route in `server.js`.
 - New config variable: `lib/config.js` only; import where needed, never inline constants elsewhere.
 
@@ -76,3 +82,5 @@ All runtime configuration constants are centralized in `lib/config.js`.
 - User/LLM commands execute via `execFile` tokenization, not shell expansion (`lib/executor.js:56`, `lib/executor.js:117`).
 - Blocklist check remains active before command execution (`lib/executor.js:104` and chat-level guard `lib/chat-route.js:339`).
 - Electron renderer cannot navigate to external origins (`electron/main.mjs:75`).
+- API keys are never returned in full to the client; always masked in provider config responses (`lib/provider-config.js` + `server.js` provider routes).
+- `.provider-config.json` must never be committed (enforced in `.gitignore`).
