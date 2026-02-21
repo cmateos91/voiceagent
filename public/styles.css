@@ -159,6 +159,54 @@ body {
   flex-wrap: wrap;
 }
 
+.settings-divider {
+  margin: 12px 0 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+}
+
+.allowlist-items {
+  display: grid;
+  gap: 6px;
+}
+
+.allowlist-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.allowlist-item code {
+  border: 1px solid var(--line);
+  background: #0d0d0d;
+  color: var(--text);
+  padding: 6px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.allowlist-add-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.warning-banner {
+  margin: 0;
+  border: 1px solid #5d2a00;
+  background: #2a1400;
+  color: var(--amber);
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .voice-stage {
   display: grid;
   justify-items: center;

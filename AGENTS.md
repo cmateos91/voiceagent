@@ -59,6 +59,8 @@ All runtime configuration constants are centralized in `lib/config.js`.
 - New shell command policy/type: `lib/executor.js` (and branch in `lib/chat-route.js` if chat-facing).
 - New model prompt/LLM call behavior: `lib/model.js`.
 - New LLM provider: `lib/providers.js`, add `callXxx()` and wire provider switch in `callProvider()`, then add model list in `GET /api/provider/models` in `server.js`.
+- New access scope logic: `lib/access-config.js` + `lib/executor.js`.
+- Access mode UI: `public/app.js` settings panel.
 - New setup capability/validation: `lib/setup.js` + route in `server.js`.
 - New config variable: `lib/config.js` only; import where needed, never inline constants elsewhere.
 
@@ -84,3 +86,6 @@ All runtime configuration constants are centralized in `lib/config.js`.
 - Electron renderer cannot navigate to external origins (`electron/main.mjs:75`).
 - API keys are never returned in full to the client; always masked in provider config responses (`lib/provider-config.js` + `server.js` provider routes).
 - `.provider-config.json` must never be committed (enforced in `.gitignore`).
+- Free mode logs a warning and requires explicit UI confirmation before activation.
+- Allowlist mode validates absolute-path command args before `execFile`.
+- `.access-config.json` must never be committed (enforced in `.gitignore`).

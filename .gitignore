@@ -3,6 +3,7 @@ dist/
 .env
 .env.local
 .provider-config.json
+.access-config.json
 *.log
 *.tmp
 *.swp

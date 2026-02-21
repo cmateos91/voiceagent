@@ -1,5 +1,6 @@
 import express from 'express';
 import { execFile } from 'node:child_process';
+import { access as fsAccess } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +14,7 @@ import {
   AUTO_SUMMARIZE_READS
 } from './lib/config.js';
 import { createChatHandler } from './lib/chat-route.js';
+import { loadAccessConfig, saveAccessConfig } from './lib/access-config.js';
 import { getActiveProviderConfig, loadProviderConfig, saveProviderConfig } from './lib/provider-config.js';
 import {
   cleanupPendingCommands,
@@ -194,6 +196,40 @@ app.get('/api/provider/models', async (req, res) => {
     });
   }
   return res.status(400).json({ error: 'provider invalido' });
+});
+
+app.get('/api/access/config', (_req, res) => {
+  return res.json({ ...loadAccessConfig(), workdir: EXEC_WORKDIR });
+});
+
+app.post('/api/access/config', (req, res) => {
+  const body = req.body || {};
+  const mode = String(body.mode || '').trim();
+  if (!['workdir', 'allowlist', 'free'].includes(mode)) {
+    return res.status(400).json({ error: 'modo invalido' });
+  }
+
+  const updates = { mode };
+  if (Array.isArray(body.allowedPaths)) {
+    updates.allowedPaths = body.allowedPaths.map((p) => String(p || '').trim()).filter(Boolean);
+  }
+
+  if (mode === 'free') {
+    console.warn('[security] Free mode enabled — full system access');
+  }
+
+  return res.json({ ...saveAccessConfig(updates), workdir: EXEC_WORKDIR });
+});
+
+app.get('/api/access/check-path', async (req, res) => {
+  const input = String(req.query?.path || '').trim();
+  if (!input) return res.json({ exists: false });
+  try {
+    await fsAccess(input);
+    return res.json({ exists: true });
+  } catch {
+    return res.json({ exists: false });
+  }
 });
 
 app.post('/api/chat', createChatHandler());

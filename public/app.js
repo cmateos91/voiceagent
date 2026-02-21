@@ -22,6 +22,19 @@ const anthropicKeyInput = document.getElementById('anthropicKeyInput');
 const anthropicModelSelect = document.getElementById('anthropicModelSelect');
 const providerSaveBtn = document.getElementById('providerSaveBtn');
 const providerCloseBtn = document.getElementById('providerCloseBtn');
+const accessWorkdirBtn = document.getElementById('accessWorkdirBtn');
+const accessAllowlistBtn = document.getElementById('accessAllowlistBtn');
+const accessFreeBtn = document.getElementById('accessFreeBtn');
+const accessStatusLine = document.getElementById('accessStatusLine');
+const accessWorkdirPanel = document.getElementById('accessWorkdirPanel');
+const accessAllowlistPanel = document.getElementById('accessAllowlistPanel');
+const accessFreePanel = document.getElementById('accessFreePanel');
+const accessWorkdirText = document.getElementById('accessWorkdirText');
+const allowlistItems = document.getElementById('allowlistItems');
+const allowlistInput = document.getElementById('allowlistInput');
+const allowlistAddBtn = document.getElementById('allowlistAddBtn');
+const accessFreeConfirmBtn = document.getElementById('accessFreeConfirmBtn');
+const accessStatusMsg = document.getElementById('accessStatusMsg');
 
 const textConsole = document.getElementById('textConsole');
 const chat = document.getElementById('chat');
@@ -56,7 +69,9 @@ const state = {
   setupReady: false,
   providerConfig: null,
   providerModels: { ollama: [] },
-  selectedProvider: 'ollama'
+  selectedProvider: 'ollama',
+  accessConfig: null,
+  selectedAccessMode: 'workdir'
 };
 let voiceDebounceTimer = null;
 let visualizerBars = [];
@@ -390,6 +405,106 @@ async function saveProviderConfigUi() {
   await ensureOllamaModelList();
   renderProviderPanel();
   providerStatusMsg.textContent = 'Configuración guardada.';
+}
+
+function getAccessButtons() {
+  return [
+    ['workdir', accessWorkdirBtn],
+    ['allowlist', accessAllowlistBtn],
+    ['free', accessFreeBtn]
+  ];
+}
+
+function renderAllowlistItems() {
+  if (!allowlistItems) return;
+  const paths = Array.isArray(state.accessConfig?.allowedPaths) ? state.accessConfig.allowedPaths : [];
+  if (!paths.length) {
+    allowlistItems.innerHTML = '<p class="provider-status-line">Sin rutas permitidas.</p>';
+    return;
+  }
+  allowlistItems.innerHTML = paths
+    .map((p, idx) => `<div class="allowlist-item"><code>${p}</code><button type="button" data-remove-index="${idx}">✕</button></div>`)
+    .join('');
+
+  allowlistItems.querySelectorAll('button[data-remove-index]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const idx = Number(btn.getAttribute('data-remove-index'));
+      const current = Array.isArray(state.accessConfig?.allowedPaths) ? state.accessConfig.allowedPaths : [];
+      const allowedPaths = current.filter((_p, i) => i !== idx);
+      await saveAccessConfigUi({ mode: state.selectedAccessMode, allowedPaths });
+    });
+  });
+}
+
+function setAccessStatusLine(cfg) {
+  if (!accessStatusLine) return;
+  if (!cfg) {
+    accessStatusLine.textContent = 'ACCESO: WORKDIR';
+    return;
+  }
+  if (cfg.mode === 'allowlist') {
+    accessStatusLine.textContent = `ACCESO: RUTAS PERMITIDAS · ${Array.isArray(cfg.allowedPaths) ? cfg.allowedPaths.length : 0}`;
+    return;
+  }
+  if (cfg.mode === 'free') {
+    accessStatusLine.textContent = 'ACCESO: LIBRE';
+    return;
+  }
+  accessStatusLine.textContent = 'ACCESO: WORKDIR';
+}
+
+function renderAccessPanel() {
+  const cfg = state.accessConfig;
+  if (!cfg) return;
+  const mode = state.selectedAccessMode || cfg.mode || 'workdir';
+
+  for (const [name, button] of getAccessButtons()) {
+    if (!button) continue;
+    button.classList.toggle('active', mode === name);
+  }
+
+  if (accessWorkdirPanel) accessWorkdirPanel.classList.toggle('hidden', mode !== 'workdir');
+  if (accessAllowlistPanel) accessAllowlistPanel.classList.toggle('hidden', mode !== 'allowlist');
+  if (accessFreePanel) accessFreePanel.classList.toggle('hidden', mode !== 'free');
+  if (accessWorkdirText) {
+    const workdir = state.accessConfig?.workdir || '(workdir)';
+    accessWorkdirText.textContent = `El agente solo opera en: ${workdir}`;
+  }
+  setAccessStatusLine(cfg);
+  renderAllowlistItems();
+}
+
+async function loadAccessConfigUi() {
+  const res = await apiFetch('/api/access/config');
+  if (!res.ok) throw new Error(`access config ${res.status}`);
+  const cfg = await res.json();
+  state.accessConfig = cfg;
+  state.selectedAccessMode = cfg.mode || 'workdir';
+  renderAccessPanel();
+}
+
+async function saveAccessConfigUi(payload) {
+  const res = await apiFetch('/api/access/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `access save ${res.status}`);
+  }
+  const cfg = await res.json();
+  state.accessConfig = cfg;
+  state.selectedAccessMode = cfg.mode || 'workdir';
+  renderAccessPanel();
+  if (accessStatusMsg) accessStatusMsg.textContent = 'Acceso actualizado.';
+}
+
+async function checkPathExists(pathValue) {
+  const res = await apiFetch(`/api/access/check-path?path=${encodeURIComponent(pathValue)}`);
+  if (!res.ok) return false;
+  const data = await res.json();
+  return Boolean(data?.exists);
 }
 
 function parseAssistantJsonLike(value) {
@@ -1136,10 +1251,12 @@ if (anthropicKeyInput) {
 if (settingsBtn) {
   settingsBtn.addEventListener('click', async () => {
     providerStatusMsg.textContent = '';
+    if (accessStatusMsg) accessStatusMsg.textContent = '';
     providerPanel.classList.toggle('hidden');
     if (!providerPanel.classList.contains('hidden')) {
       try {
         await loadProviderConfigUi();
+        await loadAccessConfigUi();
       } catch (error) {
         providerStatusMsg.textContent = `No se pudo cargar configuración: ${error.message}`;
       }
@@ -1160,6 +1277,59 @@ if (providerSaveBtn) {
       await saveProviderConfigUi();
     } catch (error) {
       providerStatusMsg.textContent = `Error al guardar: ${error.message}`;
+    }
+  });
+}
+
+for (const [name, button] of getAccessButtons()) {
+  if (!button) continue;
+  button.addEventListener('click', () => {
+    state.selectedAccessMode = name;
+    if (accessStatusMsg) accessStatusMsg.textContent = '';
+    renderAccessPanel();
+    if (name === 'workdir') {
+      saveAccessConfigUi({ mode: 'workdir' }).catch((error) => {
+        accessStatusMsg.textContent = `Error al guardar acceso: ${error.message}`;
+      });
+    }
+    if (name === 'allowlist') {
+      const current = Array.isArray(state.accessConfig?.allowedPaths) ? state.accessConfig.allowedPaths : [];
+      saveAccessConfigUi({ mode: 'allowlist', allowedPaths: current }).catch((error) => {
+        accessStatusMsg.textContent = `Error al guardar acceso: ${error.message}`;
+      });
+    }
+  });
+}
+
+if (allowlistAddBtn) {
+  allowlistAddBtn.addEventListener('click', async () => {
+    const pathValue = String(allowlistInput?.value || '').trim();
+    if (!pathValue) return;
+    accessStatusMsg.textContent = 'Validando ruta...';
+    try {
+      const exists = await checkPathExists(pathValue);
+      if (!exists) {
+        accessStatusMsg.textContent = 'La ruta no existe.';
+        return;
+      }
+      const current = Array.isArray(state.accessConfig?.allowedPaths) ? state.accessConfig.allowedPaths : [];
+      const allowedPaths = current.includes(pathValue) ? current : [...current, pathValue];
+      await saveAccessConfigUi({ mode: 'allowlist', allowedPaths });
+      allowlistInput.value = '';
+    } catch (error) {
+      accessStatusMsg.textContent = `Error al añadir ruta: ${error.message}`;
+    }
+  });
+}
+
+if (accessFreeConfirmBtn) {
+  accessFreeConfirmBtn.addEventListener('click', async () => {
+    accessStatusMsg.textContent = 'Activando modo libre...';
+    try {
+      const current = Array.isArray(state.accessConfig?.allowedPaths) ? state.accessConfig.allowedPaths : [];
+      await saveAccessConfigUi({ mode: 'free', allowedPaths: current });
+    } catch (error) {
+      accessStatusMsg.textContent = `Error al activar modo libre: ${error.message}`;
     }
   });
 }
@@ -1189,6 +1359,11 @@ initSetupWizard();
 loadProviderConfigUi().catch((error) => {
   if (providerStatusMsg) {
     providerStatusMsg.textContent = `No se pudo cargar proveedor: ${error.message}`;
+  }
+});
+loadAccessConfigUi().catch((error) => {
+  if (accessStatusMsg) {
+    accessStatusMsg.textContent = `No se pudo cargar acceso: ${error.message}`;
   }
 });
 

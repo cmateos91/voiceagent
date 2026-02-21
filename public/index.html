@@ -72,6 +72,32 @@
           <button id="providerCloseBtn" type="button">CERRAR</button>
         </div>
         <p id="providerStatusMsg" class="provider-status-msg"></p>
+
+        <div class="settings-divider">ACCESO AL SISTEMA</div>
+        <div class="provider-toggle-row">
+          <button id="accessWorkdirBtn" type="button">WORKDIR</button>
+          <button id="accessAllowlistBtn" type="button">RUTAS PERMITIDAS</button>
+          <button id="accessFreeBtn" type="button">LIBRE</button>
+        </div>
+        <div id="accessStatusLine" class="provider-status-line"></div>
+
+        <div id="accessWorkdirPanel" class="provider-block">
+          <p id="accessWorkdirText"></p>
+        </div>
+
+        <div id="accessAllowlistPanel" class="provider-block hidden">
+          <div id="allowlistItems" class="allowlist-items"></div>
+          <div class="allowlist-add-row">
+            <input id="allowlistInput" type="text" placeholder="/ruta/a/permitir" autocomplete="off" />
+            <button id="allowlistAddBtn" type="button">+ AÑADIR RUTA</button>
+          </div>
+        </div>
+
+        <div id="accessFreePanel" class="provider-block hidden">
+          <p class="warning-banner">⚠ MODO LIBRE: El agente puede acceder y modificar cualquier archivo del sistema. Úsalo con precaución.</p>
+          <button id="accessFreeConfirmBtn" type="button">CONFIRMAR</button>
+        </div>
+        <p id="accessStatusMsg" class="provider-status-msg"></p>
       </section>
 
       <section id="setupPanel" class="setup-panel hidden">
