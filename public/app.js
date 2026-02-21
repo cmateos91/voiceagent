@@ -155,20 +155,35 @@ function apiFetch(url, options = {}) {
 function parseAssistantJsonLike(value) {
   const text = String(value || '').trim();
   if (!text) return null;
+  let parsed = null;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch {
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     if (start >= 0 && end > start) {
       try {
-        return JSON.parse(text.slice(start, end + 1));
+        parsed = JSON.parse(text.slice(start, end + 1));
       } catch {
         return null;
       }
     }
-    return null;
   }
+  if (parsed === null) return null;
+
+  // Some model replies arrive as a JSON string containing JSON text.
+  // Unwrap one extra layer when needed.
+  if (typeof parsed === 'string') {
+    const inner = parsed.trim();
+    if (inner) {
+      try {
+        return JSON.parse(inner);
+      } catch {
+        return parsed;
+      }
+    }
+  }
+  return parsed;
 }
 
 function normalizeAssistantPayload(data, streamedText) {
@@ -745,7 +760,7 @@ function setupSpeechRecognition() {
         addMessage('agent', msg);
         speak(msg);
       }
-    }, 1200);
+    }, 450);
   };
 
   recognition.onspeechend = () => {
