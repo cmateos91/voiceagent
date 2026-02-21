@@ -5,9 +5,27 @@ const startVoiceBtn = document.getElementById('startVoiceBtn');
 const ttsToggle = document.getElementById('ttsToggle');
 const autoListenToggle = document.getElementById('autoListenToggle');
 const textModeToggle = document.getElementById('textModeToggle');
+const settingsBtn = document.getElementById('settingsBtn');
+const providerPanel = document.getElementById('providerPanel');
+const providerStatusLine = document.getElementById('providerStatusLine');
+const providerStatusMsg = document.getElementById('providerStatusMsg');
+const providerOllamaBtn = document.getElementById('providerOllamaBtn');
+const providerOpenaiBtn = document.getElementById('providerOpenaiBtn');
+const providerAnthropicBtn = document.getElementById('providerAnthropicBtn');
+const ollamaSettings = document.getElementById('ollamaSettings');
+const openaiSettings = document.getElementById('openaiSettings');
+const anthropicSettings = document.getElementById('anthropicSettings');
+const ollamaModelSelect = document.getElementById('ollamaModelSelect');
+const openaiKeyInput = document.getElementById('openaiKeyInput');
+const openaiModelSelect = document.getElementById('openaiModelSelect');
+const anthropicKeyInput = document.getElementById('anthropicKeyInput');
+const anthropicModelSelect = document.getElementById('anthropicModelSelect');
+const providerSaveBtn = document.getElementById('providerSaveBtn');
+const providerCloseBtn = document.getElementById('providerCloseBtn');
 
 const textConsole = document.getElementById('textConsole');
 const chat = document.getElementById('chat');
+const visualizer = document.getElementById('visualizer');
 const pendingBox = document.getElementById('pending');
 const form = document.getElementById('chatForm');
 const input = document.getElementById('messageInput');
@@ -35,9 +53,116 @@ const state = {
   thinking: false,
   userPausedListening: true,
   shouldAutoResume: false,
-  setupReady: false
+  setupReady: false,
+  providerConfig: null,
+  providerModels: { ollama: [] },
+  selectedProvider: 'ollama'
 };
 let voiceDebounceTimer = null;
+let visualizerBars = [];
+let visualizerAudioContext = null;
+let visualizerAnalyser = null;
+let visualizerSource = null;
+let visualizerStream = null;
+let visualizerFrame = null;
+
+function ensureVisualizerBars() {
+  if (!visualizer) return;
+  if (visualizerBars.length) return;
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 24; i += 1) {
+    const bar = document.createElement('span');
+    bar.className = 'viz-bar';
+    frag.appendChild(bar);
+    visualizerBars.push(bar);
+  }
+  visualizer.appendChild(frag);
+}
+
+function setVisualizerMode(mode = 'idle') {
+  if (!visualizer) return;
+  visualizer.classList.remove('listening', 'speaking', 'fallback');
+  if (mode === 'listening' || mode === 'speaking' || mode === 'fallback') {
+    visualizer.classList.add(mode);
+  }
+}
+
+async function initAudioVisualizer(stream) {
+  ensureVisualizerBars();
+  if (!visualizer || !visualizerBars.length) return;
+  setVisualizerMode('listening');
+
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx || !navigator.mediaDevices?.getUserMedia) {
+    setVisualizerMode('fallback');
+    return;
+  }
+
+  try {
+    if (visualizerFrame) {
+      cancelAnimationFrame(visualizerFrame);
+      visualizerFrame = null;
+    }
+
+    if (visualizerSource) {
+      visualizerSource.disconnect();
+      visualizerSource = null;
+    }
+
+    if (!stream) {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    visualizerStream = stream;
+
+    if (!visualizerAudioContext) {
+      visualizerAudioContext = new AudioCtx();
+    }
+    if (visualizerAudioContext.state === 'suspended') {
+      await visualizerAudioContext.resume();
+    }
+
+    visualizerAnalyser = visualizerAudioContext.createAnalyser();
+    visualizerAnalyser.fftSize = 128;
+    visualizerAnalyser.smoothingTimeConstant = 0.75;
+    visualizerSource = visualizerAudioContext.createMediaStreamSource(stream);
+    visualizerSource.connect(visualizerAnalyser);
+
+    const bins = new Uint8Array(visualizerAnalyser.frequencyBinCount);
+    const render = () => {
+      if (!visualizerAnalyser) return;
+      visualizerAnalyser.getByteFrequencyData(bins);
+      const step = Math.max(1, Math.floor(bins.length / visualizerBars.length));
+      for (let i = 0; i < visualizerBars.length; i += 1) {
+        const value = bins[Math.min(bins.length - 1, i * step)] || 0;
+        const height = 4 + Math.round((value / 255) * 52);
+        visualizerBars[i].style.height = `${height}px`;
+      }
+      visualizerFrame = requestAnimationFrame(render);
+    };
+    render();
+  } catch {
+    setVisualizerMode('fallback');
+  }
+}
+
+function stopAudioVisualizer() {
+  if (visualizerFrame) {
+    cancelAnimationFrame(visualizerFrame);
+    visualizerFrame = null;
+  }
+  if (visualizerSource) {
+    visualizerSource.disconnect();
+    visualizerSource = null;
+  }
+  if (visualizerStream) {
+    visualizerStream.getTracks().forEach((track) => track.stop());
+    visualizerStream = null;
+  }
+  visualizerBars.forEach((bar) => {
+    bar.style.height = '8px';
+  });
+  setVisualizerMode('idle');
+}
 
 const sessionId = (() => {
   const key = 'voice_pc_agent_session_id';
@@ -153,6 +278,118 @@ function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (API_TOKEN) headers.set('x-api-token', API_TOKEN);
   return fetch(url, { ...options, headers });
+}
+
+function getProviderButtons() {
+  return [
+    ['ollama', providerOllamaBtn],
+    ['openai', providerOpenaiBtn],
+    ['anthropic', providerAnthropicBtn]
+  ];
+}
+
+function setProviderStatusLine(cfg) {
+  if (!providerStatusLine) return;
+  if (!cfg) {
+    providerStatusLine.textContent = 'PROVEEDOR: OLLAMA';
+    return;
+  }
+  const activeModel =
+    cfg.provider === 'ollama' ? cfg.ollamaModel : cfg.provider === 'openai' ? cfg.openaiModel : cfg.anthropicModel;
+  providerStatusLine.textContent = `PROVEEDOR: ${String(cfg.provider || 'ollama').toUpperCase()} · ${activeModel || '-'}`;
+}
+
+function renderProviderPanel() {
+  const cfg = state.providerConfig;
+  if (!cfg) return;
+  const provider = state.selectedProvider || cfg.provider || 'ollama';
+
+  for (const [name, button] of getProviderButtons()) {
+    if (!button) continue;
+    button.classList.toggle('active', provider === name);
+  }
+
+  if (ollamaSettings) ollamaSettings.classList.toggle('hidden', provider !== 'ollama');
+  if (openaiSettings) openaiSettings.classList.toggle('hidden', provider !== 'openai');
+  if (anthropicSettings) anthropicSettings.classList.toggle('hidden', provider !== 'anthropic');
+
+  if (ollamaModelSelect) ollamaModelSelect.value = cfg.ollamaModel || '';
+  if (openaiModelSelect) openaiModelSelect.value = cfg.openaiModel || 'gpt-4o-mini';
+  if (anthropicModelSelect) anthropicModelSelect.value = cfg.anthropicModel || 'claude-haiku-4-5-20251001';
+  if (openaiKeyInput && !openaiKeyInput.dataset.dirty) openaiKeyInput.value = cfg.openaiKey || '';
+  if (anthropicKeyInput && !anthropicKeyInput.dataset.dirty) anthropicKeyInput.value = cfg.anthropicKey || '';
+
+  setProviderStatusLine(cfg);
+}
+
+async function fetchProviderModels(provider) {
+  const res = await apiFetch(`/api/provider/models?provider=${encodeURIComponent(provider)}`);
+  if (!res.ok) throw new Error(`provider models ${res.status}`);
+  return res.json();
+}
+
+async function ensureOllamaModelList() {
+  if (state.providerModels.ollama?.length) return;
+  try {
+    const data = await fetchProviderModels('ollama');
+    state.providerModels.ollama = Array.isArray(data?.models) ? data.models : [];
+  } catch {
+    state.providerModels.ollama = [];
+  }
+  if (!ollamaModelSelect) return;
+
+  const current = state.providerConfig?.ollamaModel || '';
+  const models = state.providerModels.ollama;
+  const merged = models.includes(current) ? models : [current, ...models].filter(Boolean);
+  ollamaModelSelect.innerHTML = merged.map((m) => `<option value="${m}">${m}</option>`).join('');
+  if (!merged.length) {
+    ollamaModelSelect.innerHTML = '<option value="">(sin modelos detectados)</option>';
+  }
+}
+
+async function loadProviderConfigUi() {
+  const res = await apiFetch('/api/provider/config');
+  if (!res.ok) throw new Error(`provider config ${res.status}`);
+  const cfg = await res.json();
+  state.providerConfig = cfg;
+  state.selectedProvider = cfg.provider || 'ollama';
+  await ensureOllamaModelList();
+  renderProviderPanel();
+}
+
+async function saveProviderConfigUi() {
+  if (!state.providerConfig) return;
+  const provider = state.selectedProvider || 'ollama';
+  const payload = {
+    provider,
+    ollamaModel: ollamaModelSelect?.value || state.providerConfig.ollamaModel,
+    openaiModel: openaiModelSelect?.value || state.providerConfig.openaiModel,
+    anthropicModel: anthropicModelSelect?.value || state.providerConfig.anthropicModel
+  };
+
+  const openaiValue = String(openaiKeyInput?.value || '').trim();
+  const anthropicValue = String(anthropicKeyInput?.value || '').trim();
+  if (openaiValue && !openaiValue.endsWith('***')) payload.openaiKey = openaiValue;
+  if (anthropicValue && !anthropicValue.endsWith('***')) payload.anthropicKey = anthropicValue;
+
+  const res = await apiFetch('/api/provider/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `provider save ${res.status}`);
+  }
+
+  const cfg = await res.json();
+  state.providerConfig = cfg;
+  state.selectedProvider = cfg.provider || 'ollama';
+  if (openaiKeyInput) openaiKeyInput.dataset.dirty = '';
+  if (anthropicKeyInput) anthropicKeyInput.dataset.dirty = '';
+  await ensureOllamaModelList();
+  renderProviderPanel();
+  providerStatusMsg.textContent = 'Configuración guardada.';
 }
 
 function parseAssistantJsonLike(value) {
@@ -399,6 +636,7 @@ function speak(text) {
     state.recognition.stop();
   }
 
+  setVisualizerMode('speaking');
   setOrb(state.pendingToken ? 'pending' : 'speaking');
   setStatus('Hablando', 'Reproduciendo respuesta por voz...');
 
@@ -432,6 +670,8 @@ function speak(text) {
     if (!state.userPausedListening) {
       state.shouldAutoResume = true;
       maybeResumeListening(400);
+    } else {
+      setVisualizerMode('idle');
     }
   })();
 }
@@ -705,6 +945,7 @@ function setupSpeechRecognition() {
 
   recognition.onstart = () => {
     state.listening = true;
+    initAudioVisualizer();
     setOrb(state.pendingToken ? 'pending' : 'listening');
     setStatus('Escuchando', state.pendingToken ? 'Esperando aprobacion o rechazo.' : 'Di tu siguiente instruccion.');
     startVoiceBtn.textContent = 'Pausar voz';
@@ -712,6 +953,7 @@ function setupSpeechRecognition() {
 
   recognition.onend = () => {
     state.listening = false;
+    stopAudioVisualizer();
     startVoiceBtn.textContent = state.userPausedListening ? 'Activar voz' : 'Pausar voz';
 
     if (state.shouldAutoResume && !state.userPausedListening) {
@@ -869,6 +1111,59 @@ textModeToggle.addEventListener('change', () => {
   setTextMode(textModeToggle.checked);
 });
 
+for (const [name, button] of getProviderButtons()) {
+  if (!button) continue;
+  button.addEventListener('click', async () => {
+    state.selectedProvider = name;
+    if (name === 'ollama') {
+      await ensureOllamaModelList();
+    }
+    renderProviderPanel();
+  });
+}
+
+if (openaiKeyInput) {
+  openaiKeyInput.addEventListener('input', () => {
+    openaiKeyInput.dataset.dirty = '1';
+  });
+}
+if (anthropicKeyInput) {
+  anthropicKeyInput.addEventListener('input', () => {
+    anthropicKeyInput.dataset.dirty = '1';
+  });
+}
+
+if (settingsBtn) {
+  settingsBtn.addEventListener('click', async () => {
+    providerStatusMsg.textContent = '';
+    providerPanel.classList.toggle('hidden');
+    if (!providerPanel.classList.contains('hidden')) {
+      try {
+        await loadProviderConfigUi();
+      } catch (error) {
+        providerStatusMsg.textContent = `No se pudo cargar configuración: ${error.message}`;
+      }
+    }
+  });
+}
+
+if (providerCloseBtn) {
+  providerCloseBtn.addEventListener('click', () => {
+    providerPanel.classList.add('hidden');
+  });
+}
+
+if (providerSaveBtn) {
+  providerSaveBtn.addEventListener('click', async () => {
+    providerStatusMsg.textContent = 'Guardando...';
+    try {
+      await saveProviderConfigUi();
+    } catch (error) {
+      providerStatusMsg.textContent = `Error al guardar: ${error.message}`;
+    }
+  });
+}
+
 setupSpeechRecognition();
 setTextMode(false);
 setOrb('paused');
@@ -891,6 +1186,11 @@ setupRefreshBtn.addEventListener('click', async () => {
 });
 
 initSetupWizard();
+loadProviderConfigUi().catch((error) => {
+  if (providerStatusMsg) {
+    providerStatusMsg.textContent = `No se pudo cargar proveedor: ${error.message}`;
+  }
+});
 
 if (window.desktopUpdater) {
   window.desktopUpdater.onStatus((status) => {

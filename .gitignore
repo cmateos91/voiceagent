@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .env.local
+.provider-config.json
 *.log
 *.tmp
 *.swp

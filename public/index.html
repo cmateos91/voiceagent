@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Voice PC Agent</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -18,12 +22,57 @@
           <button id="updateDownloadBtn" type="button" class="hidden">Descargar actualización</button>
           <button id="updateInstallBtn" type="button" class="hidden">Reiniciar y actualizar</button>
         </div>
-        <label class="toggle">
-          <input id="textModeToggle" type="checkbox" />
-          <span>Modo texto</span>
-        </label>
+        <div class="header-controls">
+          <button id="settingsBtn" type="button" class="settings-gear" aria-label="Abrir configuración">⚙</button>
+          <label class="toggle">
+            <input id="textModeToggle" type="checkbox" />
+            <span>Modo texto</span>
+          </label>
+        </div>
       </header>
       <p id="updateStatus" class="update-status hidden"></p>
+      <section id="providerPanel" class="provider-panel hidden" aria-label="Configuración de proveedor">
+        <h2>Proveedor LLM</h2>
+        <p id="providerStatusLine" class="provider-status-line">PROVEEDOR: OLLAMA</p>
+        <div class="provider-toggle-row">
+          <button id="providerOllamaBtn" type="button">OLLAMA</button>
+          <button id="providerOpenaiBtn" type="button">OPENAI</button>
+          <button id="providerAnthropicBtn" type="button">ANTHROPIC</button>
+        </div>
+
+        <div id="ollamaSettings" class="provider-block">
+          <label for="ollamaModelSelect">MODELO</label>
+          <select id="ollamaModelSelect"></select>
+        </div>
+
+        <div id="openaiSettings" class="provider-block hidden">
+          <label for="openaiKeyInput">API KEY</label>
+          <input id="openaiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
+          <label for="openaiModelSelect">MODELO</label>
+          <select id="openaiModelSelect">
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-4-turbo">gpt-4-turbo</option>
+          </select>
+        </div>
+
+        <div id="anthropicSettings" class="provider-block hidden">
+          <label for="anthropicKeyInput">API KEY</label>
+          <input id="anthropicKeyInput" type="password" autocomplete="off" placeholder="sk-ant-..." />
+          <label for="anthropicModelSelect">MODELO</label>
+          <select id="anthropicModelSelect">
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+            <option value="claude-opus-4-6">claude-opus-4-6</option>
+          </select>
+        </div>
+
+        <div class="provider-actions">
+          <button id="providerSaveBtn" type="button" class="primary">GUARDAR</button>
+          <button id="providerCloseBtn" type="button">CERRAR</button>
+        </div>
+        <p id="providerStatusMsg" class="provider-status-msg"></p>
+      </section>
 
       <section id="setupPanel" class="setup-panel hidden">
         <h2>Asistente de Inicio</h2>
@@ -44,6 +93,7 @@
           <div class="ring ring-2"></div>
           <div class="core"></div>
         </div>
+        <div id="visualizer" aria-hidden="true"></div>
 
         <div class="status-block">
           <h2 id="statusMain">Listo para hablar</h2>

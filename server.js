@@ -13,6 +13,7 @@ import {
   AUTO_SUMMARIZE_READS
 } from './lib/config.js';
 import { createChatHandler } from './lib/chat-route.js';
+import { getActiveProviderConfig, loadProviderConfig, saveProviderConfig } from './lib/provider-config.js';
 import {
   cleanupPendingCommands,
   deletePendingCommand,
@@ -21,7 +22,7 @@ import {
   hasPendingCommand,
   runShellCommand
 } from './lib/executor.js';
-import { isValidModelName, setupStatus } from './lib/setup.js';
+import { getInstalledModelsFromOllama, isValidModelName, setupStatus } from './lib/setup.js';
 import { cleanupSessionMemory } from './lib/session.js';
 
 const app = express();
@@ -124,6 +125,75 @@ app.post('/api/setup/pull-model', async (req, res) => {
   } catch (error) {
     return res.status(500).json({ ok: false, error: error.message || 'Error descargando modelo.' });
   }
+});
+
+function maskKey(value) {
+  const key = String(value || '').trim();
+  if (!key) return '';
+  return `${key.slice(0, 4)}***`;
+}
+
+function toPublicProviderConfig(config) {
+  return {
+    provider: config.provider,
+    ollamaModel: config.ollamaModel,
+    openaiModel: config.openaiModel,
+    anthropicModel: config.anthropicModel,
+    openaiKey: maskKey(config.openaiKey),
+    anthropicKey: maskKey(config.anthropicKey)
+  };
+}
+
+app.get('/api/provider/config', (_req, res) => {
+  const config = loadProviderConfig();
+  return res.json(toPublicProviderConfig(config));
+});
+
+app.post('/api/provider/config', (req, res) => {
+  const body = req.body || {};
+  const current = loadProviderConfig();
+  const provider = String(body.provider || current.provider || 'ollama');
+
+  if (!['ollama', 'openai', 'anthropic'].includes(provider)) {
+    return res.status(400).json({ error: 'provider invalido' });
+  }
+
+  const updates = {};
+  if (typeof body.ollamaModel === 'string' && body.ollamaModel.trim()) updates.ollamaModel = body.ollamaModel.trim();
+  if (typeof body.openaiModel === 'string' && body.openaiModel.trim()) updates.openaiModel = body.openaiModel.trim();
+  if (typeof body.anthropicModel === 'string' && body.anthropicModel.trim()) updates.anthropicModel = body.anthropicModel.trim();
+  if (typeof body.openaiKey === 'string') updates.openaiKey = body.openaiKey.trim();
+  if (typeof body.anthropicKey === 'string') updates.anthropicKey = body.anthropicKey.trim();
+  updates.provider = provider;
+
+  const next = { ...current, ...updates };
+  if (provider === 'openai' && !String(next.openaiKey || '').trim()) {
+    return res.status(400).json({ error: 'openai key requerida' });
+  }
+  if (provider === 'anthropic' && !String(next.anthropicKey || '').trim()) {
+    return res.status(400).json({ error: 'anthropic key requerida' });
+  }
+
+  const saved = saveProviderConfig(updates);
+  return res.json(toPublicProviderConfig(saved));
+});
+
+app.get('/api/provider/models', async (req, res) => {
+  const requested = String(req.query?.provider || getActiveProviderConfig().provider || 'ollama');
+  if (requested === 'ollama') {
+    const models = await getInstalledModelsFromOllama();
+    return res.json({ provider: 'ollama', models });
+  }
+  if (requested === 'openai') {
+    return res.json({ provider: 'openai', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'] });
+  }
+  if (requested === 'anthropic') {
+    return res.json({
+      provider: 'anthropic',
+      models: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6']
+    });
+  }
+  return res.status(400).json({ error: 'provider invalido' });
 });
 
 app.post('/api/chat', createChatHandler());
