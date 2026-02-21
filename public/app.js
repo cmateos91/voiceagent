@@ -23,6 +23,7 @@ const setupStartBtn = document.getElementById('setupStartBtn');
 const setupPullBtn = document.getElementById('setupPullBtn');
 const setupRefreshBtn = document.getElementById('setupRefreshBtn');
 const setupLog = document.getElementById('setupLog');
+const API_TOKEN = new URLSearchParams(window.location.search).get('_token') || '';
 
 const state = {
   history: [],
@@ -98,6 +99,56 @@ function addMessage(role, text) {
   el.textContent = text;
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
+}
+
+function createMessage(role, text = '') {
+  if (!chat) return null;
+  const el = document.createElement('div');
+  el.className = `msg ${role}`;
+  el.textContent = text;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+  return el;
+}
+
+async function consumeSseResponse(response, onEvent) {
+  if (!response.body) return;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf('\n\n');
+
+      const dataLines = block
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim());
+
+      if (!dataLines.length) continue;
+      const raw = dataLines.join('\n');
+      try {
+        const event = JSON.parse(raw);
+        onEvent(event);
+      } catch {
+        // Ignore malformed event blocks.
+      }
+    }
+  }
+}
+
+function apiFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (API_TOKEN) headers.set('x-api-token', API_TOKEN);
+  return fetch(url, { ...options, headers });
 }
 
 function normalizeSpeech(text) {
@@ -328,7 +379,7 @@ async function sendUserMessage(text, source = 'voice') {
   setOrb('thinking');
   setStatus('Pensando', 'Consultando el modelo...');
 
-  const res = await fetch('/api/chat', {
+  const res = await apiFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId, history: state.history })
@@ -345,9 +396,40 @@ async function sendUserMessage(text, source = 'voice') {
     return;
   }
 
-  const data = await res.json();
+  const contentType = res.headers.get('content-type') || '';
+  let data = null;
+  let streamingBubble = null;
+  let streamedText = '';
+
+  if (contentType.includes('text/event-stream')) {
+    await consumeSseResponse(res, (event) => {
+      if (event?.type === 'token') {
+        if (!streamingBubble) {
+          streamingBubble = createMessage('agent', '');
+        }
+        streamedText += String(event.delta || '');
+        streamingBubble.textContent = streamedText;
+        chat.scrollTop = chat.scrollHeight;
+        return;
+      }
+      if (event?.type === 'final') {
+        data = event.payload || null;
+        return;
+      }
+      if (event?.type === 'error') {
+        data = { type: 'reply', message: `Error de backend: ${event.message || 'desconocido'}` };
+      }
+    });
+  } else {
+    data = await res.json();
+  }
+
+  if (!data) {
+    data = { type: 'reply', message: streamedText || 'Sin respuesta.' };
+  }
 
   if (data.type === 'executed') {
+    if (streamingBubble) streamingBubble.remove();
     if (data.summary) {
       addMessage('agent', data.summary);
       pushHistory('assistant', data.summary);
@@ -366,6 +448,7 @@ async function sendUserMessage(text, source = 'voice') {
   }
 
   if (data.type === 'command') {
+    if (streamingBubble) streamingBubble.remove();
     state.pendingToken = data.token;
     state.pendingCommand = data.command;
 
@@ -380,7 +463,11 @@ async function sendUserMessage(text, source = 'voice') {
   }
 
   const msg = data.message || 'Sin respuesta.';
-  addMessage('agent', msg);
+  if (streamingBubble) {
+    streamingBubble.textContent = msg;
+  } else {
+    addMessage('agent', msg);
+  }
   pushHistory('assistant', msg);
 
   setOrb('idle');
@@ -419,7 +506,7 @@ function renderSetupStatus(status) {
 }
 
 async function fetchSetupStatus() {
-  const res = await fetch('/api/setup/status');
+  const res = await apiFetch('/api/setup/status');
   if (!res.ok) throw new Error(`status ${res.status}`);
   return res.json();
 }
@@ -431,7 +518,7 @@ async function runSetupAction(endpoint, payload = null) {
   setupStartBtn.disabled = true;
   setupPullBtn.disabled = true;
   try {
-    const res = await fetch(endpoint, {
+    const res = await apiFetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: payload ? JSON.stringify(payload) : '{}'
@@ -482,7 +569,7 @@ async function approveCommand() {
   setOrb('thinking');
   setStatus('Ejecutando', 'Procesando comando confirmado...');
 
-  const res = await fetch('/api/execute', {
+  const res = await apiFetch('/api/execute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token })
@@ -509,7 +596,7 @@ async function rejectCommand() {
   state.pendingCommand = null;
   clearPendingText();
 
-  await fetch('/api/reject', {
+  await apiFetch('/api/reject', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token })

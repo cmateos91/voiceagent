@@ -1,10 +1,12 @@
 import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
 import { fork } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
 
 const APP_PORT = Number(process.env.PORT || 3187);
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
+const API_TOKEN = process.env.API_TOKEN || randomUUID();
 
 let mainWindow = null;
 let splashWindow = null;
@@ -38,7 +40,8 @@ function startBackend() {
     cwd: app.getAppPath(),
     env: {
       ...process.env,
-      PORT: String(APP_PORT)
+      PORT: String(APP_PORT),
+      API_TOKEN
     },
     stdio: 'ignore'
   });
@@ -69,6 +72,12 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const allowed = new URL(APP_URL).origin;
+    if (!new URL(url).origin.startsWith(allowed)) {
+      event.preventDefault();
+    }
+  });
 
   mainWindow.once('ready-to-show', () => {
     if (splashWindow && !splashWindow.isDestroyed()) {
@@ -78,7 +87,9 @@ function createWindow() {
     mainWindow.show();
   });
 
-  mainWindow.loadURL(APP_URL);
+  const appUrl = new URL(APP_URL);
+  appUrl.searchParams.set('_token', API_TOKEN);
+  mainWindow.loadURL(appUrl.toString());
 }
 
 function configureAutoUpdater() {
