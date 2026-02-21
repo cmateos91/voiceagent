@@ -37,6 +37,7 @@ const state = {
   shouldAutoResume: false,
   setupReady: false
 };
+let voiceDebounceTimer = null;
 
 const sessionId = (() => {
   const key = 'voice_pc_agent_session_id';
@@ -149,6 +150,43 @@ function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (API_TOKEN) headers.set('x-api-token', API_TOKEN);
   return fetch(url, { ...options, headers });
+}
+
+function parseAssistantJsonLike(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(text.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+function normalizeAssistantPayload(data, streamedText) {
+  if (data && typeof data === 'object') {
+    if (typeof data.message === 'string') {
+      const nested = parseAssistantJsonLike(data.message);
+      if (nested?.type && typeof nested?.message === 'string') {
+        return nested;
+      }
+    }
+    return data;
+  }
+
+  const parsedFromStream = parseAssistantJsonLike(streamedText);
+  if (parsedFromStream?.type && typeof parsedFromStream?.message === 'string') {
+    return parsedFromStream;
+  }
+  return { type: 'reply', message: String(streamedText || 'Sin respuesta.') };
 }
 
 function normalizeSpeech(text) {
@@ -424,9 +462,7 @@ async function sendUserMessage(text, source = 'voice') {
     data = await res.json();
   }
 
-  if (!data) {
-    data = { type: 'reply', message: streamedText || 'Sin respuesta.' };
-  }
+  data = normalizeAssistantPayload(data, streamedText);
 
   if (data.type === 'executed') {
     if (streamingBubble) streamingBubble.remove();
@@ -649,8 +685,18 @@ function setupSpeechRecognition() {
   };
 
   recognition.onresult = async (event) => {
-    const transcript = event.results?.[0]?.[0]?.transcript?.trim();
-    if (!transcript) {
+    const result = event.results?.[event.resultIndex];
+    const alt = result?.[0];
+    const transcript = alt?.transcript?.trim();
+    const confidence = alt?.confidence ?? 1;
+
+    if (!result?.isFinal) {
+      maybeResumeListening();
+      return;
+    }
+
+    if (!transcript || confidence < 0.55) {
+      console.log('[voice] filtered: low confidence or empty', { transcript: transcript || '', confidence });
       maybeResumeListening();
       return;
     }
@@ -684,13 +730,26 @@ function setupSpeechRecognition() {
       return;
     }
 
-    try {
-      await sendUserMessage(transcript, 'voice');
-    } catch (error) {
-      const msg = `Error: ${error.message}`;
-      addMessage('agent', msg);
-      speak(msg);
+    if (transcript.split(' ').filter(Boolean).length < 2) {
+      console.log('[voice] filtered: too short', { transcript, confidence });
+      maybeResumeListening();
+      return;
     }
+
+    clearTimeout(voiceDebounceTimer);
+    voiceDebounceTimer = setTimeout(async () => {
+      try {
+        await sendUserMessage(transcript, 'voice');
+      } catch (error) {
+        const msg = `Error: ${error.message}`;
+        addMessage('agent', msg);
+        speak(msg);
+      }
+    }, 1200);
+  };
+
+  recognition.onspeechend = () => {
+    setStatus('Procesando', 'Analizando lo que dijiste...');
   };
 
   recognition.onerror = (event) => {
