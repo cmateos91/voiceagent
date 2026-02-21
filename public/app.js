@@ -227,6 +227,16 @@ function getPendingVoiceIntent(transcript) {
     'confirma comando',
     'ejecutar comando',
     'ejecuta comando',
+    'aprobar',
+    'aprueba',
+    'confirmar',
+    'confirma',
+    'ejecutar',
+    'ejecuta',
+    'sí ejecuta',
+    'dale',
+    'sí',
+    'si',
     'si ejecutar',
     'si confirma'
   ];
@@ -236,6 +246,13 @@ function getPendingVoiceIntent(transcript) {
     'rechaza comando',
     'cancelar comando',
     'cancela comando',
+    'rechazar',
+    'rechaza',
+    'cancelar',
+    'cancela',
+    'no ejecutes',
+    'no',
+    'para',
     'no ejecutar',
     'no confirmo',
     'descartar comando'
@@ -299,7 +316,7 @@ function startListening() {
 }
 
 function maybeResumeListening(delayMs = 180) {
-  if (state.userPausedListening || state.thinking || state.speaking || state.pendingToken) return;
+  if (state.userPausedListening || state.thinking || state.speaking) return;
   setTimeout(() => {
     if (!state.listening && !state.userPausedListening && !state.thinking && !state.speaking) {
       startListening();
@@ -472,6 +489,10 @@ async function sendUserMessage(text, source = 'voice') {
       }
       if (event?.type === 'final') {
         data = event.payload || null;
+        if (data?.type === 'command') {
+          state.shouldAutoResume = true;
+          maybeResumeListening(800);
+        }
         return;
       }
       if (event?.type === 'error') {
@@ -509,7 +530,7 @@ async function sendUserMessage(text, source = 'voice') {
     state.pendingCommand = data.command;
 
     setOrb('pending');
-    setStatus('Confirmacion pendiente', 'Di "aprobar comando" o "rechazar comando".');
+    setStatus('Comando pendiente', `"${data.command}" — Di "aprobar comando" o "rechazar comando"`);
 
     const msg = `Necesito confirmacion para ejecutar este comando: ${data.command}`;
     addMessage('agent', msg);
