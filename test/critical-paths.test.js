@@ -26,6 +26,7 @@ import {
 } from '../lib/session.js';
 import { chooseClosestCandidate } from '../lib/resolver.js';
 import { buildDeterministicInspectionSummary } from '../lib/grounding.js';
+import { fillSlots } from '../lib/slots.js';
 
 describe('lib/intent.js', () => {
   it("detectSummaryIntent('resúmeme el proyecto') -> true", () => {
@@ -183,5 +184,36 @@ describe('lib/grounding.js', () => {
       buildDeterministicInspectionSummary('.', inspection),
       'La carpeta . contiene 2 carpetas y 3 archivos.'
     );
+  });
+});
+
+describe('lib/slots.js', () => {
+  it("fillSlots('ábrela') uses memory.lastTarget", () => {
+    const result = fillSlots('ábrela', { lastTarget: 'FutbolDB', cachedDirs: ['FutbolDB', 'Unity'] });
+    assert.equal(result.text.includes('FutbolDB') && result.subs.length > 0, true);
+  });
+
+  it("fillSlots('lista esa carpeta') uses memory.lastTarget", () => {
+    const result = fillSlots('lista esa carpeta', { lastTarget: 'Unity', cachedDirs: ['Unity', 'FutbolDB'] });
+    assert.equal(result.text.includes('Unity') && result.subs.length > 0, true);
+  });
+
+  it("fillSlots('hazlo de nuevo') uses memory.lastCommand", () => {
+    const result = fillSlots('hazlo de nuevo', { lastTarget: 'Unity', lastCommand: 'ls -la FutbolDB', cachedDirs: [] });
+    assert.equal(result.text.includes('ls -la FutbolDB'), true);
+  });
+
+  it("fillSlots('abre AndroidDevelpment') keeps explicit target unchanged", () => {
+    const result = fillSlots('abre AndroidDevelpment', {
+      lastTarget: 'Unity',
+      lastCommand: null,
+      cachedDirs: ['AndroidDevelpment', 'Unity']
+    });
+    assert.equal(result.text, 'abre AndroidDevelpment');
+  });
+
+  it("fillSlots('ábrela') with no memory keeps text unchanged", () => {
+    const result = fillSlots('ábrela', { lastTarget: null, lastCommand: null, cachedDirs: [] });
+    assert.equal(result.text, 'ábrela');
   });
 });
