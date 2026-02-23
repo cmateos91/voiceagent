@@ -1,8 +1,11 @@
-import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import { fork } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { autoUpdater } from 'electron-updater';
+import updaterPkg from 'electron-updater';
+
+const { autoUpdater } = updaterPkg;
 
 const APP_PORT = Number(process.env.PORT || 3187);
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
@@ -12,6 +15,18 @@ let mainWindow = null;
 let splashWindow = null;
 let serverProcess = null;
 let updateState = { status: 'idle', message: '' };
+let startupLogPath = '';
+let lastStartupProbe = 'sin detalles';
+
+function logStartup(message) {
+  const line = `[${new Date().toISOString()}] ${String(message)}\n`;
+  try {
+    if (startupLogPath) appendFileSync(startupLogPath, line, 'utf8');
+  } catch {
+    // Best effort logging only.
+  }
+  console.error(line.trim());
+}
 
 function sendUpdateState(patch = {}) {
   updateState = { ...updateState, ...patch };
@@ -24,9 +39,17 @@ async function waitForServer(url, timeoutMs = 30000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`${url}/api/setup/status`);
+      const setupUrl = new URL('/api/setup/status', url);
+      setupUrl.searchParams.set('_token', API_TOKEN);
+      const res = await fetch(setupUrl.toString(), {
+        headers: {
+          'x-api-token': API_TOKEN
+        }
+      });
       if (res.ok) return true;
-    } catch {
+      lastStartupProbe = `HTTP ${res.status} en /api/setup/status`;
+    } catch (error) {
+      lastStartupProbe = `fetch error: ${error?.message || String(error)}`;
       // Keep polling until timeout.
     }
     await new Promise((resolve) => setTimeout(resolve, 400));
@@ -43,10 +66,22 @@ function startBackend() {
       PORT: String(APP_PORT),
       API_TOKEN
     },
-    stdio: 'ignore'
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
   });
 
-  serverProcess.on('exit', () => {
+  serverProcess.stdout?.on('data', (chunk) => {
+    logStartup(`[backend stdout] ${String(chunk).trim()}`);
+  });
+  serverProcess.stderr?.on('data', (chunk) => {
+    logStartup(`[backend stderr] ${String(chunk).trim()}`);
+  });
+
+  serverProcess.on('error', (error) => {
+    logStartup(`[backend error] ${error?.message || String(error)}`);
+  });
+
+  serverProcess.on('exit', (code, signal) => {
+    logStartup(`[backend exit] code=${code ?? 'null'} signal=${signal ?? 'null'}`);
     serverProcess = null;
   });
 }
@@ -196,6 +231,11 @@ app.on('web-contents-created', (_event, contents) => {
 });
 
 app.whenReady().then(async () => {
+  const logDir = join(app.getPath('userData'), 'logs');
+  mkdirSync(logDir, { recursive: true });
+  startupLogPath = join(logDir, 'startup.log');
+  logStartup('App startup begin');
+
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
     if (permission === 'media') return true;
     return false;
@@ -210,6 +250,16 @@ app.whenReady().then(async () => {
       splashWindow.close();
       splashWindow = null;
     }
+    dialog.showErrorBox(
+      'Error al iniciar Voice PC Agent',
+      [
+        'No se pudo iniciar el backend local.',
+        `Último estado: ${lastStartupProbe}`,
+        '',
+        `Log de arranque: ${startupLogPath}`,
+        'Compárteme ese log para diagnosticar el fallo exacto.'
+      ].join('\n')
+    );
     app.quit();
     return;
   }

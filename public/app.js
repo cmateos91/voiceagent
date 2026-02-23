@@ -12,14 +12,18 @@ const providerStatusMsg = document.getElementById('providerStatusMsg');
 const providerOllamaBtn = document.getElementById('providerOllamaBtn');
 const providerOpenaiBtn = document.getElementById('providerOpenaiBtn');
 const providerAnthropicBtn = document.getElementById('providerAnthropicBtn');
+const providerGeminiBtn = document.getElementById('providerGeminiBtn');
 const ollamaSettings = document.getElementById('ollamaSettings');
 const openaiSettings = document.getElementById('openaiSettings');
 const anthropicSettings = document.getElementById('anthropicSettings');
+const geminiSettings = document.getElementById('geminiSettings');
 const ollamaModelSelect = document.getElementById('ollamaModelSelect');
 const openaiKeyInput = document.getElementById('openaiKeyInput');
 const openaiModelSelect = document.getElementById('openaiModelSelect');
 const anthropicKeyInput = document.getElementById('anthropicKeyInput');
 const anthropicModelSelect = document.getElementById('anthropicModelSelect');
+const geminiKeyInput = document.getElementById('geminiKeyInput');
+const geminiModelSelect = document.getElementById('geminiModelSelect');
 const providerSaveBtn = document.getElementById('providerSaveBtn');
 const providerCloseBtn = document.getElementById('providerCloseBtn');
 const accessWorkdirBtn = document.getElementById('accessWorkdirBtn');
@@ -54,7 +58,18 @@ const setupStartBtn = document.getElementById('setupStartBtn');
 const setupPullBtn = document.getElementById('setupPullBtn');
 const setupRefreshBtn = document.getElementById('setupRefreshBtn');
 const setupLog = document.getElementById('setupLog');
+const setupModelSelect = document.getElementById('setupModelSelect');
+const setupProfileHint = document.getElementById('setupProfileHint');
+const setupProfileLightBtn = document.getElementById('setupProfileLightBtn');
+const setupProfileBalancedBtn = document.getElementById('setupProfileBalancedBtn');
+const setupProfilePowerBtn = document.getElementById('setupProfilePowerBtn');
 const API_TOKEN = new URLSearchParams(window.location.search).get('_token') || '';
+
+const SETUP_PROFILE_MODELS = {
+  light: 'qwen2.5:7b',
+  balanced: 'llama3.1:8b',
+  power: 'gpt-oss:20b'
+};
 
 const state = {
   history: [],
@@ -71,7 +86,13 @@ const state = {
   providerModels: { ollama: [] },
   selectedProvider: 'ollama',
   accessConfig: null,
-  selectedAccessMode: 'workdir'
+  selectedAccessMode: 'workdir',
+  setupModel: '',
+  setupProfile: '',
+  setupRecommendedProfile: 'balanced',
+  setupAvailableModels: [],
+  setupInstalledModels: [],
+  lastSetupStatus: null
 };
 let voiceDebounceTimer = null;
 let visualizerBars = [];
@@ -299,8 +320,83 @@ function getProviderButtons() {
   return [
     ['ollama', providerOllamaBtn],
     ['openai', providerOpenaiBtn],
-    ['anthropic', providerAnthropicBtn]
+    ['anthropic', providerAnthropicBtn],
+    ['gemini', providerGeminiBtn]
   ];
+}
+
+function normalizeModelAliases(value) {
+  const v = String(value || '').trim();
+  if (!v) return [];
+  if (v.includes(':')) {
+    const [base] = v.split(':');
+    return [v, base].filter(Boolean);
+  }
+  return [v, `${v}:latest`];
+}
+
+function isModelInstalled(installedModels, model) {
+  const installed = new Set((Array.isArray(installedModels) ? installedModels : []).map((m) => String(m || '').trim()).filter(Boolean));
+  const aliases = normalizeModelAliases(model);
+  return aliases.some((alias) => installed.has(alias));
+}
+
+function isLikelyEmbeddingModel(model) {
+  return /embed|embedding/i.test(String(model || ''));
+}
+
+function getSetupProfileButtons() {
+  return [
+    ['light', setupProfileLightBtn],
+    ['balanced', setupProfileBalancedBtn],
+    ['power', setupProfilePowerBtn]
+  ];
+}
+
+function findClosestProfileModel(profile, availableModels = []) {
+  const preferred = SETUP_PROFILE_MODELS[profile];
+  if (!preferred) return '';
+  if (availableModels.includes(preferred)) return preferred;
+  const family = preferred.split(':')[0];
+  return availableModels.find((m) => m.startsWith(`${family}:`)) || preferred;
+}
+
+function renderSetupProfiles(status, availableModels = []) {
+  const profile = state.setupProfile || state.setupRecommendedProfile || 'balanced';
+  for (const [name, button] of getSetupProfileButtons()) {
+    if (!button) continue;
+    button.classList.toggle('active', name === profile);
+  }
+  const recommendation = state.setupRecommendedProfile || 'balanced';
+  const selectedModel = findClosestProfileModel(profile, availableModels) || state.setupModel || status.model;
+  if (setupProfileHint) {
+    setupProfileHint.textContent =
+      `Recomendado: ${recommendation === 'light' ? 'Ligero' : recommendation === 'power' ? 'Potente' : 'Equilibrado'} · ` +
+      `Perfil actual: ${profile === 'light' ? 'Ligero' : profile === 'power' ? 'Potente' : 'Equilibrado'} · ` +
+      `Modelo: ${selectedModel || '-'}`;
+  }
+}
+
+async function detectRecommendedSetupProfile() {
+  let memoryGb = 0;
+  let freeGb = 0;
+  if (typeof navigator.deviceMemory === 'number') {
+    memoryGb = navigator.deviceMemory;
+  }
+  if (navigator.storage?.estimate) {
+    try {
+      const estimate = await navigator.storage.estimate();
+      if (typeof estimate?.quota === 'number' && typeof estimate?.usage === 'number') {
+        freeGb = (estimate.quota - estimate.usage) / (1024 ** 3);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if ((memoryGb > 0 && memoryGb <= 8) || (freeGb > 0 && freeGb < 25)) return 'light';
+  if ((memoryGb > 0 && memoryGb <= 16) || (freeGb > 0 && freeGb < 60)) return 'balanced';
+  return 'power';
 }
 
 function setProviderStatusLine(cfg) {
@@ -310,7 +406,13 @@ function setProviderStatusLine(cfg) {
     return;
   }
   const activeModel =
-    cfg.provider === 'ollama' ? cfg.ollamaModel : cfg.provider === 'openai' ? cfg.openaiModel : cfg.anthropicModel;
+    cfg.provider === 'ollama'
+      ? cfg.ollamaModel
+      : cfg.provider === 'openai'
+        ? cfg.openaiModel
+        : cfg.provider === 'anthropic'
+          ? cfg.anthropicModel
+          : cfg.geminiModel;
   providerStatusLine.textContent = `PROVEEDOR: ${String(cfg.provider || 'ollama').toUpperCase()} · ${activeModel || '-'}`;
 }
 
@@ -327,12 +429,15 @@ function renderProviderPanel() {
   if (ollamaSettings) ollamaSettings.classList.toggle('hidden', provider !== 'ollama');
   if (openaiSettings) openaiSettings.classList.toggle('hidden', provider !== 'openai');
   if (anthropicSettings) anthropicSettings.classList.toggle('hidden', provider !== 'anthropic');
+  if (geminiSettings) geminiSettings.classList.toggle('hidden', provider !== 'gemini');
 
   if (ollamaModelSelect) ollamaModelSelect.value = cfg.ollamaModel || '';
   if (openaiModelSelect) openaiModelSelect.value = cfg.openaiModel || 'gpt-4o-mini';
   if (anthropicModelSelect) anthropicModelSelect.value = cfg.anthropicModel || 'claude-haiku-4-5-20251001';
+  if (geminiModelSelect) geminiModelSelect.value = cfg.geminiModel || 'gemini-2.5-flash';
   if (openaiKeyInput && !openaiKeyInput.dataset.dirty) openaiKeyInput.value = cfg.openaiKey || '';
   if (anthropicKeyInput && !anthropicKeyInput.dataset.dirty) anthropicKeyInput.value = cfg.anthropicKey || '';
+  if (geminiKeyInput && !geminiKeyInput.dataset.dirty) geminiKeyInput.value = cfg.geminiKey || '';
 
   setProviderStatusLine(cfg);
 }
@@ -343,8 +448,8 @@ async function fetchProviderModels(provider) {
   return res.json();
 }
 
-async function ensureOllamaModelList() {
-  if (state.providerModels.ollama?.length) return;
+async function ensureOllamaModelList(force = false) {
+  if (!force && state.providerModels.ollama?.length) return;
   try {
     const data = await fetchProviderModels('ollama');
     state.providerModels.ollama = Array.isArray(data?.models) ? data.models : [];
@@ -354,9 +459,15 @@ async function ensureOllamaModelList() {
   if (!ollamaModelSelect) return;
 
   const current = state.providerConfig?.ollamaModel || '';
-  const models = state.providerModels.ollama;
-  const merged = models.includes(current) ? models : [current, ...models].filter(Boolean);
-  ollamaModelSelect.innerHTML = merged.map((m) => `<option value="${m}">${m}</option>`).join('');
+  const installed = state.providerModels.ollama;
+  const recommended = ['qwen2.5:7b', 'mistral:7b', 'llama3.1:8b', 'gpt-oss:20b'];
+  const merged = Array.from(new Set([current, ...installed, ...recommended].filter(Boolean)));
+  ollamaModelSelect.innerHTML = merged
+    .map((m) => {
+      const installedLabel = isModelInstalled(installed, m) ? '' : ' ⬇';
+      return `<option value="${m}">${m}${installedLabel}</option>`;
+    })
+    .join('');
   if (!merged.length) {
     ollamaModelSelect.innerHTML = '<option value="">(sin modelos detectados)</option>';
   }
@@ -368,7 +479,7 @@ async function loadProviderConfigUi() {
   const cfg = await res.json();
   state.providerConfig = cfg;
   state.selectedProvider = cfg.provider || 'ollama';
-  await ensureOllamaModelList();
+  await ensureOllamaModelList(true);
   renderProviderPanel();
 }
 
@@ -379,13 +490,32 @@ async function saveProviderConfigUi() {
     provider,
     ollamaModel: ollamaModelSelect?.value || state.providerConfig.ollamaModel,
     openaiModel: openaiModelSelect?.value || state.providerConfig.openaiModel,
-    anthropicModel: anthropicModelSelect?.value || state.providerConfig.anthropicModel
+    anthropicModel: anthropicModelSelect?.value || state.providerConfig.anthropicModel,
+    geminiModel: geminiModelSelect?.value || state.providerConfig.geminiModel
   };
 
   const openaiValue = String(openaiKeyInput?.value || '').trim();
   const anthropicValue = String(anthropicKeyInput?.value || '').trim();
+  const geminiValue = String(geminiKeyInput?.value || '').trim();
   if (openaiValue && !openaiValue.endsWith('***')) payload.openaiKey = openaiValue;
   if (anthropicValue && !anthropicValue.endsWith('***')) payload.anthropicKey = anthropicValue;
+  if (geminiValue && !geminiValue.endsWith('***')) payload.geminiKey = geminiValue;
+
+  const selectedOllamaModel = payload.ollamaModel;
+  const installed = state.providerModels.ollama || [];
+  if (provider === 'ollama' && selectedOllamaModel) {
+    if (!isModelInstalled(installed, selectedOllamaModel)) {
+      providerStatusMsg.textContent = `Modelo no instalado: ${selectedOllamaModel}. Pulsa "Descargar Modelo" en Asistente de Inicio.`;
+      const status = await fetchSetupStatus();
+      renderSetupStatus(status);
+      setupPanel.classList.remove('hidden');
+      return;
+    }
+    if (isLikelyEmbeddingModel(selectedOllamaModel)) {
+      providerStatusMsg.textContent = `El modelo ${selectedOllamaModel} es de embeddings y no sirve para chat.`;
+      return;
+    }
+  }
 
   const res = await apiFetch('/api/provider/config', {
     method: 'POST',
@@ -402,9 +532,16 @@ async function saveProviderConfigUi() {
   state.selectedProvider = cfg.provider || 'ollama';
   if (openaiKeyInput) openaiKeyInput.dataset.dirty = '';
   if (anthropicKeyInput) anthropicKeyInput.dataset.dirty = '';
-  await ensureOllamaModelList();
+  if (geminiKeyInput) geminiKeyInput.dataset.dirty = '';
+  await ensureOllamaModelList(true);
   renderProviderPanel();
   providerStatusMsg.textContent = 'Configuración guardada.';
+  try {
+    const status = await fetchSetupStatus();
+    renderSetupStatus(status);
+  } catch {
+    // ignore setup status refresh errors here
+  }
 }
 
 function getAccessButtons() {
@@ -801,6 +938,25 @@ async function sendUserMessage(text, source = 'voice') {
     speak(msg);
     return;
   }
+  if (state.providerConfig?.provider === 'ollama') {
+    const model = state.providerConfig?.ollamaModel || ollamaModelSelect?.value || '';
+    const installed = state.providerModels.ollama || [];
+    if (!isModelInstalled(installed, model)) {
+      const msg = `El modelo ${model} no está instalado. Descárgalo en Asistente de Inicio.`;
+      addMessage('agent', msg);
+      setupPanel.classList.remove('hidden');
+      setStatus('Modelo pendiente', msg);
+      speak(msg);
+      return;
+    }
+    if (isLikelyEmbeddingModel(model)) {
+      const msg = `El modelo ${model} no es de chat. Elige uno de chat (por ejemplo qwen2.5:7b).`;
+      addMessage('agent', msg);
+      setStatus('Modelo no válido', msg);
+      speak(msg);
+      return;
+    }
+  }
 
   addMessage('user', text);
   pushHistory('user', text);
@@ -914,14 +1070,52 @@ function showSetupLog(content) {
 }
 
 function renderSetupStatus(status) {
+  state.lastSetupStatus = status;
   const ready = status.ollamaInstalled && status.ollamaReachable && status.modelInstalled;
   state.setupReady = ready;
   setVoiceControlsEnabled(ready);
 
-  setupPanel.classList.toggle('hidden', ready);
-  if (ready) {
+  const preferredModels = ['qwen2.5:7b', 'mistral:7b', 'llama3.1:8b', 'gpt-oss:20b'];
+  const available = Array.from(
+    new Set([status.model, ...(Array.isArray(status.installedModels) ? status.installedModels : []), ...preferredModels].filter(Boolean))
+  );
+  state.setupAvailableModels = available;
+  state.setupInstalledModels = Array.isArray(status.installedModels) ? status.installedModels : [];
+  if (!state.setupProfile) {
+    state.setupProfile = state.setupRecommendedProfile || 'balanced';
+  }
+  if (setupModelSelect) {
+    setupModelSelect.innerHTML = available.map((model) => `<option value="${model}">${model}</option>`).join('');
+    const profileModel = findClosestProfileModel(state.setupProfile, available);
+    const selected = state.setupModel || profileModel || status.model || preferredModels[0];
+    setupModelSelect.value = available.includes(selected) ? selected : available[0];
+    state.setupModel = setupModelSelect.value;
+    setupModelSelect.disabled = !status.ollamaInstalled || !status.ollamaReachable;
+  }
+  renderSetupProfiles(status, available);
+
+  const selectedModel = state.setupModel || status.model;
+  const selectedInstalled = isModelInstalled(state.setupInstalledModels, selectedModel);
+  const showInstall = Boolean(status.suggestedActions.installOllama);
+  const showStart = Boolean(status.suggestedActions.startOllama);
+  const showPull = Boolean(status.ollamaInstalled && status.ollamaReachable && !selectedInstalled);
+
+  setupInstallBtn.classList.toggle('hidden', !showInstall);
+  setupStartBtn.classList.toggle('hidden', !showStart);
+  setupPullBtn.classList.toggle('hidden', !showPull);
+  if (setupPullBtn && showPull) {
+    setupPullBtn.textContent = `Descargar Modelo (${selectedModel})`;
+  } else if (setupPullBtn) {
+    setupPullBtn.textContent = 'Descargar Modelo';
+  }
+
+  setupPanel.classList.toggle('hidden', ready && selectedInstalled);
+  if (ready && selectedInstalled) {
     setupSummary.textContent = 'Entorno listo. Puedes usar modo voz.';
-    return;
+  } else if (showPull) {
+    setupSummary.textContent = `Modelo seleccionado no instalado (${selectedModel}). Descárgalo para usarlo.`;
+  } else {
+    setupSummary.textContent = 'Faltan dependencias para que el agente funcione en local.';
   }
 
   const checks = [
@@ -930,11 +1124,6 @@ function renderSetupStatus(status) {
     `Modelo (${status.model}) descargado: ${status.modelInstalled ? 'si' : 'no'}`
   ];
   setupChecklist.innerHTML = checks.map((line) => `<li>${line}</li>`).join('');
-  setupSummary.textContent = 'Faltan dependencias para que el agente funcione en local.';
-
-  setupInstallBtn.classList.toggle('hidden', !status.suggestedActions.installOllama);
-  setupStartBtn.classList.toggle('hidden', !status.suggestedActions.startOllama);
-  setupPullBtn.classList.toggle('hidden', !status.suggestedActions.pullModel);
 }
 
 async function fetchSetupStatus() {
@@ -944,7 +1133,39 @@ async function fetchSetupStatus() {
 }
 
 async function runSetupAction(endpoint, payload = null) {
-  setupSummary.textContent = 'Ejecutando tarea de setup...';
+  const actionNames = {
+    '/api/setup/install-ollama': 'Instalando Ollama',
+    '/api/setup/start-ollama': 'Iniciando Ollama',
+    '/api/setup/pull-model': 'Descargando modelo'
+  };
+  const selectedModel = payload?.model ? String(payload.model) : state.setupModel;
+  const actionLabelBase = actionNames[endpoint] || 'Ejecutando tarea de setup';
+  const actionLabel =
+    endpoint === '/api/setup/pull-model' && selectedModel ? `${actionLabelBase} (${selectedModel})` : actionLabelBase;
+  const startedAt = Date.now();
+  let tick = null;
+  const logLines = [];
+  const appendLog = (line) => {
+    if (!line) return;
+    logLines.push(line);
+    if (logLines.length > 500) {
+      logLines.splice(0, logLines.length - 500);
+    }
+    setupLog.classList.remove('hidden');
+    setupLog.textContent = logLines.join('\n');
+  };
+
+  setupSummary.textContent = `${actionLabel}...`;
+  appendLog(`[${new Date().toLocaleTimeString()}] ${actionLabel}`);
+  appendLog('Estado: en progreso...');
+  appendLog('Este proceso puede tardar varios minutos. No cierres la aplicación.');
+  appendLog('');
+
+  tick = setInterval(() => {
+    const seconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
+    setupSummary.textContent = `${actionLabel}... ${seconds}s transcurridos`;
+  }, 1000);
+
   setupRefreshBtn.disabled = true;
   setupInstallBtn.disabled = true;
   setupStartBtn.disabled = true;
@@ -955,20 +1176,83 @@ async function runSetupAction(endpoint, payload = null) {
       headers: { 'Content-Type': 'application/json' },
       body: payload ? JSON.stringify(payload) : '{}'
     });
-    const data = await res.json();
-    showSetupLog(
-      [
-        data.command ? `Comando: ${data.command}` : '',
-        data.error ? `Error: ${data.error}` : '',
-        data.stderr ? `STDERR:\n${data.stderr}` : '',
-        data.stdout ? `STDOUT:\n${data.stdout}` : ''
-      ]
-        .filter(Boolean)
-        .join('\n\n')
-    );
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || `status ${res.status}`);
+    }
+
+    const elapsed = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
+    let finalData = null;
+    const contentType = String(res.headers.get('content-type') || '');
+    if (contentType.includes('application/json')) {
+      finalData = await res.json();
+    } else if (res.body) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx = buffer.indexOf('\n');
+        while (idx >= 0) {
+          const line = buffer.slice(0, idx).trim();
+          buffer = buffer.slice(idx + 1);
+          idx = buffer.indexOf('\n');
+          if (!line) continue;
+          let event = null;
+          try {
+            event = JSON.parse(line);
+          } catch {
+            appendLog(line);
+            continue;
+          }
+          if (event.type === 'start') {
+            if (event.model) {
+              state.setupModel = event.model;
+              if (setupModelSelect) setupModelSelect.value = event.model;
+            }
+            if (event.command) appendLog(`Comando: ${event.command}`);
+            continue;
+          }
+          if (event.type === 'log') {
+            const prefix = event.stream === 'stderr' ? '[stderr]' : '[stdout]';
+            appendLog(`${prefix} ${event.message}`);
+            continue;
+          }
+          if (event.type === 'error') {
+            appendLog(`Error: ${event.error}`);
+            continue;
+          }
+          if (event.type === 'final') {
+            finalData = event;
+            if (event.model) state.setupModel = event.model;
+          }
+        }
+      }
+    }
+
+    setupSummary.textContent = finalData?.ok
+      ? `${actionLabel} completado en ${elapsed}s.`
+      : `${actionLabel} terminó con errores en ${elapsed}s.`;
+    appendLog('');
+    appendLog(`Duración: ${elapsed}s`);
+    if (finalData?.error) appendLog(`Error final: ${finalData.error}`);
+  } catch (error) {
+    const elapsed = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
+    setupSummary.textContent = `${actionLabel} falló tras ${elapsed}s.`;
+    appendLog(`Duración: ${elapsed}s`);
+    appendLog(`Error: ${error.message || String(error)}`);
+    throw error;
   } finally {
-    const status = await fetchSetupStatus();
-    renderSetupStatus(status);
+    if (tick) clearInterval(tick);
+    try {
+      const status = await fetchSetupStatus();
+      renderSetupStatus(status);
+    } catch (error) {
+      setupSummary.textContent = `No pude refrescar estado de setup: ${error.message || String(error)}`;
+    }
     setupRefreshBtn.disabled = false;
     setupInstallBtn.disabled = false;
     setupStartBtn.disabled = false;
@@ -978,6 +1262,8 @@ async function runSetupAction(endpoint, payload = null) {
 
 async function initSetupWizard() {
   try {
+    state.setupRecommendedProfile = await detectRecommendedSetupProfile();
+    if (!state.setupProfile) state.setupProfile = state.setupRecommendedProfile;
     const status = await fetchSetupStatus();
     renderSetupStatus(status);
   } catch (error) {
@@ -1247,6 +1533,11 @@ if (anthropicKeyInput) {
     anthropicKeyInput.dataset.dirty = '1';
   });
 }
+if (geminiKeyInput) {
+  geminiKeyInput.addEventListener('input', () => {
+    geminiKeyInput.dataset.dirty = '1';
+  });
+}
 
 if (settingsBtn) {
   settingsBtn.addEventListener('click', async () => {
@@ -1348,12 +1639,34 @@ setupStartBtn.addEventListener('click', async () => {
   await runSetupAction('/api/setup/start-ollama');
 });
 setupPullBtn.addEventListener('click', async () => {
-  await runSetupAction('/api/setup/pull-model');
+  const selectedModel = setupModelSelect?.value || state.setupModel;
+  await runSetupAction('/api/setup/pull-model', { model: selectedModel });
 });
 setupRefreshBtn.addEventListener('click', async () => {
+  await ensureOllamaModelList(true);
   const status = await fetchSetupStatus();
   renderSetupStatus(status);
 });
+if (setupModelSelect) {
+  setupModelSelect.addEventListener('change', () => {
+    state.setupModel = setupModelSelect.value || '';
+    if (state.lastSetupStatus) {
+      renderSetupStatus(state.lastSetupStatus);
+    }
+  });
+}
+for (const [name, button] of getSetupProfileButtons()) {
+  if (!button) continue;
+  button.addEventListener('click', () => {
+    state.setupProfile = name;
+    const model = findClosestProfileModel(name, state.setupAvailableModels || []);
+    if (model) {
+      state.setupModel = model;
+      if (setupModelSelect) setupModelSelect.value = model;
+    }
+    renderSetupProfiles({ model: state.setupModel }, state.setupAvailableModels || []);
+  });
+}
 
 initSetupWizard();
 loadProviderConfigUi().catch((error) => {

@@ -35,6 +35,7 @@
     "files": [
       "electron/**/*",
       "public/**/*",
+      "lib/**/*",
       "build/icon.png",
       "server.js",
       "package.json",
@@ -48,6 +49,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
